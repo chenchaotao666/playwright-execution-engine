@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playwright 执行引擎演示</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .header {
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        
+        .demo-section {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .demo-section h3 {
+            color: #495057;
+            margin-top: 0;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 200px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            padding: 10px;
+            resize: vertical;
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .output {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+        
+        .test-page {
+            border: 2px solid #007bff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            background: white;
+        }
+        
+        .test-element {
+            margin: 10px 0;
+        }
+        
+        .test-element input, .test-element select, .test-element button {
+            margin: 5px;
+            padding: 8px;
+        }
+        
+        .result-box {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            display: none;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎭 Playwright 执行引擎演示</h1>
+        <p>在浏览器中直接运行 Playwright 脚本</p>
+    </div>
+
+    <!-- 测试页面元素 -->
+    <div class="test-page">
+        <h3>🎯 测试页面</h3>
+        <p>这些元素可以被 Playwright 脚本操作：</p>
+        
+        <div class="test-element">
+            <label for="username">用户名:</label>
+            <input type="text" id="username" placeholder="请输入用户名" />
+        </div>
+        
+        <div class="test-element">
+            <label for="password">密码:</label>
+            <input type="password" id="password" placeholder="请输入密码" />
+        </div>
+        
+        <div class="test-element">
+            <label for="email">邮箱:</label>
+            <input type="email" id="email" placeholder="example@email.com" />
+        </div>
+        
+        <div class="test-element">
+            <label for="country">国家:</label>
+            <select id="country">
+                <option value="">选择国家</option>
+                <option value="cn">中国</option>
+                <option value="us">美国</option>
+                <option value="jp">日本</option>
+            </select>
+        </div>
+        
+        <div class="test-element">
+            <label>
+                <input type="checkbox" id="agree" />
+                我同意服务条款
+            </label>
+        </div>
+        
+        <div class="test-element">
+            <button id="submit-btn" onclick="showResult()">提交</button>
+            <button id="reset-btn" onclick="resetForm()">重置</button>
+        </div>
+        
+        <div id="result" class="result-box">
+            表单提交成功！
+        </div>
+    </div>
+
+    <!-- 示例 1: 基础操作 -->
+    <div class="demo-section">
+        <h3>📝 示例 1: 基础表单操作</h3>
+        <textarea id="script1">import { test, expect } from '@playwright/test';
+
+test('基础表单填写测试', async ({ page }) => {
+  // 填写表单
+  await page.fill('#username', 'testuser');
+  await page.fill('#password', 'password123');
+  await page.fill('#email', 'test@example.com');
+  
+  // 选择下拉选项
+  await page.selectOption('#country', 'cn');
+  
+  // 选择复选框
+  await page.check('#agree');
+  
+  // 点击提交按钮
+  await page.click('#submit-btn');
+  
+  // 验证结果
+  await expect(page.locator('#result')).toBeVisible();
+  await expect(page.locator('#result')).toHaveText('表单提交成功！');
+});</textarea>
+        <button onclick="runScript('script1')">运行脚本</button>
+        <div id="output1" class="output"></div>
+    </div>
+
+    <!-- 示例 2: 现代定位器 -->
+    <div class="demo-section">
+        <h3>🔍 示例 2: 现代定位器使用</h3>
+        <textarea id="script2">import { test, expect } from '@playwright/test';
+
+test('现代定位器测试', async ({ page }) => {
+  // 使用 getByLabel 定位器
+  await page.getByLabel('用户名').fill('modern_user');
+  await page.getByLabel('密码').fill('secure_pass');
+  await page.getByLabel('邮箱').fill('modern@test.com');
+  
+  // 使用 getByRole 定位器
+  await page.getByRole('combobox').selectOption('us');
+  await page.getByRole('checkbox').check();
+  
+  // 使用 getByText 定位器
+  await page.getByText('提交').click();
+  
+  // 验证结果
+  const result = page.locator('#result');
+  await expect(result).toBeVisible();
+});</textarea>
+        <button onclick="runScript('script2')">运行脚本</button>
+        <div id="output2" class="output"></div>
+    </div>
+
+    <!-- 示例 3: 等待和断言 -->
+    <div class="demo-section">
+        <h3>⏱️ 示例 3: 等待机制和高级断言</h3>
+        <textarea id="script3">import { test, expect } from '@playwright/test';
+
+test('等待和断言测试', async ({ page }) => {
+  // 填写表单
+  await page.fill('#username', 'wait_test_user');
+  await page.fill('#email', 'wait@test.com');
+  
+  // 检查元素状态
+  await expect(page.locator('#submit-btn')).toBeEnabled();
+  await expect(page.locator('#result')).toBeHidden();
+  
+  // 等待并点击
+  await page.click('#submit-btn');
+  
+  // 等待结果出现
+  await page.waitForSelector('#result:visible');
+  
+  // 高级断言
+  await expect(page.locator('#result')).toBeVisible();
+  await expect(page.locator('#result')).toHaveText(/提交成功/);
+  
+  // 验证表单值
+  await expect(page.locator('#username')).toHaveValue('wait_test_user');
+  await expect(page.locator('#email')).toHaveValue('wait@test.com');
+});</textarea>
+        <button onclick="runScript('script3')">运行脚本</button>
+        <div id="output3" class="output"></div>
+    </div>
+
+    <!-- 示例 4: 自定义脚本 -->
+    <div class="demo-section">
+        <h3>✏️ 示例 4: 自定义脚本</h3>
+        <p>在下面编写你自己的 Playwright 脚本：</p>
+        <textarea id="script4" placeholder="在这里编写你的 Playwright 脚本...">import { test, expect } from '@playwright/test';
+
+test('我的自定义测试', async ({ page }) => {
+  // 在这里编写你的测试代码
+  await page.fill('#username', '自定义用户');
+  await page.click('#submit-btn');
+  
+  await expect(page.locator('#result')).toBeVisible();
+});</textarea>
+        <button onclick="runScript('script4')">运行自定义脚本</button>
+        <div id="output4" class="output"></div>
+    </div>
+
+    <!-- 加载 Playwright 执行引擎 -->
+    <script src="../dist/playwright-execution-engine.js"></script>
+    
+    <script>
+        // 初始化引擎
+        const engine = new PlaywrightExecutionEngine({
+            logLevel: 'info',
+            timeout: 30000
+        });
+
+        // 运行脚本的通用函数
+        async function runScript(scriptId) {
+            const scriptElement = document.getElementById(scriptId);
+            const outputElement = document.getElementById(scriptId.replace('script', 'output'));
+            const button = scriptElement.nextElementSibling;
+            
+            // 禁用按钮并显示加载状态
+            button.disabled = true;
+            button.innerHTML = '<span class="loading"></span> 执行中...';
+            
+            // 清空输出
+            outputElement.textContent = '';
+            
+            try {
+                const script = scriptElement.value;
+                console.log('执行脚本:', script);
+                
+                // 添加控制台输出重定向
+                const originalLog = console.log;
+                const originalError = console.error;
+                const originalWarn = console.warn;
+                
+                const logs = [];
+                
+                console.log = (...args) => {
+                    logs.push('[LOG] ' + args.join(' '));
+                    originalLog.apply(console, args);
+                };
+                
+                console.error = (...args) => {
+                    logs.push('[ERROR] ' + args.join(' '));
+                    originalError.apply(console, args);
+                };
+                
+                console.warn = (...args) => {
+                    logs.push('[WARN] ' + args.join(' '));
+                    originalWarn.apply(console, args);
+                };
+                
+                // 执行脚本
+                const result = await engine.runScript(script, scriptId);
+                
+                // 恢复控制台
+                console.log = originalLog;
+                console.error = originalError;
+                console.warn = originalWarn;
+                
+                // 显示结果
+                const output = [
+                    `📊 执行结果: ${result.success ? '✅ 成功' : '❌ 失败'}`,
+                    `⏱️ 耗时: ${result.duration}ms`,
+                    `🧪 测试数量: ${result.results.length}`,
+                    '',
+                    '📋 详细日志:',
+                    ...logs,
+                    '',
+                    '🔍 测试详情:',
+                    ...result.results.map(test => 
+                        `  ${test.success ? '✅' : '❌'} ${test.name} (${test.duration}ms)${test.error ? '\n    错误: ' + test.error.message : ''}`
+                    )
+                ].join('\n');
+                
+                outputElement.textContent = output;
+                
+            } catch (error) {
+                outputElement.textContent = `❌ 执行失败:\n${error.message}\n\n堆栈信息:\n${error.stack}`;
+                console.error('脚本执行失败:', error);
+            } finally {
+                // 恢复按钮
+                button.disabled = false;
+                button.textContent = '运行脚本';
+            }
+        }
+
+        // 测试页面的辅助函数
+        function showResult() {
+            document.getElementById('result').style.display = 'block';
+        }
+
+        function resetForm() {
+            document.getElementById('result').style.display = 'none';
+            document.querySelectorAll('input, select').forEach(element => {
+                if (element.type === 'checkbox') {
+                    element.checked = false;
+                } else {
+                    element.value = '';
+                }
+            });
+        }
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🎭 Playwright 执行引擎演示页面加载完成');
+            console.log('引擎版本:', PlaywrightExecutionEngine.getVersion());
+            
+            // 检查兼容性
+            if (PlaywrightExecutionEngine.checkCompatibility()) {
+                console.log('✅ 浏览器兼容性检查通过');
+            } else {
+                console.warn('⚠️ 浏览器兼容性存在问题');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "name": "playwright-execution-engine",
+  "version": "1.0.0-beta",
+  "description": "在浏览器中直接运行 Playwright 脚本的执行引擎",
+  "main": "dist/playwright-execution-engine.js",
+  "scripts": {
+    "build": "vite build",
+    "build:legacy": "node build.js",
+    "dev": "vite",
+    "preview": "vite preview",
+    "test": "echo \"请在浏览器中打开 examples/demo.html 进行测试\"",
+    "clean": "rm -rf dist/*"
+  },
+  "keywords": [
+    "playwright",
+    "browser",
+    "automation",
+    "testing",
+    "javascript",
+    "dom"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/playwright-execution-engine.git"
+  },
+  "files": [
+    "dist/",
+    "examples/",
+    "src/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "terser": "^5.25.0"
+  },
+  "browser": "dist/playwright-execution-engine.js"
+}
