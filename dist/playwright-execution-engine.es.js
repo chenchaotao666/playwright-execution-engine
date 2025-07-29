@@ -76,10 +76,39 @@ if (typeof window !== "undefined") {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = Logger;
 }
-let WaitManager$1 = class WaitManager2 {
+class WaitManager {
   constructor() {
     this.defaultTimeout = 3e4;
     this.logger = new (window.PlaywrightLogger || console)();
+  }
+  /**
+   * 查询单个元素（支持 CSS、XPath 和 text）
+   */
+  querySelector(selector) {
+    if (selector.startsWith("xpath=")) {
+      const xpath = selector.substring(6);
+      const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      );
+      return result.singleNodeValue;
+    } else if (selector.startsWith("text=")) {
+      const text = selector.substring(5);
+      const xpath = `//*[contains(normalize-space(text()), "${text}")]`;
+      const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      );
+      return result.singleNodeValue;
+    } else {
+      return document.querySelector(selector);
+    }
   }
   /**
    * 等待元素出现
@@ -87,8 +116,8 @@ let WaitManager$1 = class WaitManager2 {
   waitForElement(_0) {
     return __async(this, arguments, function* (selector, timeout = this.defaultTimeout) {
       return new Promise((resolve, reject) => {
-        const startTime2 = Date.now();
-        const existing = document.querySelector(selector);
+        const startTime = Date.now();
+        const existing = this.querySelector(selector);
         if (existing) {
           this.logger.debug(`元素立即找到: ${selector}`);
           return resolve(existing);
@@ -104,10 +133,10 @@ let WaitManager$1 = class WaitManager2 {
           reject(new Error(`等待元素超时: ${selector} (${timeout}ms)`));
         }, timeout);
         observer = new MutationObserver(() => {
-          const element = document.querySelector(selector);
+          const element = this.querySelector(selector);
           if (element) {
             cleanup();
-            const elapsed = Date.now() - startTime2;
+            const elapsed = Date.now() - startTime;
             this.logger.debug(`元素找到: ${selector} (${elapsed}ms)`);
             resolve(element);
           }
@@ -126,12 +155,12 @@ let WaitManager$1 = class WaitManager2 {
   waitForCondition(_0) {
     return __async(this, arguments, function* (conditionFn, timeout = this.defaultTimeout, errorMessage = "等待条件超时") {
       return new Promise((resolve, reject) => {
-        const startTime2 = Date.now();
+        const startTime = Date.now();
         const check = () => __async(this, null, function* () {
           try {
             const result = yield conditionFn();
             if (result) {
-              const elapsed = Date.now() - startTime2;
+              const elapsed = Date.now() - startTime;
               this.logger.debug(`条件满足 (${elapsed}ms)`);
               resolve(result);
               return;
@@ -139,7 +168,7 @@ let WaitManager$1 = class WaitManager2 {
           } catch (error) {
             this.logger.debug("条件检查出错，继续等待:", error.message);
           }
-          if (Date.now() - startTime2 >= timeout) {
+          if (Date.now() - startTime >= timeout) {
             reject(new Error(`${errorMessage} (${timeout}ms)`));
             return;
           }
@@ -217,14 +246,14 @@ let WaitManager$1 = class WaitManager2 {
       return new Promise((resolve) => setTimeout(resolve, ms));
     });
   }
-};
+}
 if (typeof window !== "undefined") {
-  window.PlaywrightWaitManager = WaitManager$1;
+  window.PlaywrightWaitManager = WaitManager;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = WaitManager$1;
+  module.exports = WaitManager;
 }
-let EventSimulator$1 = class EventSimulator2 {
+class EventSimulator {
   constructor() {
     this.logger = new (window.PlaywrightLogger || console)();
   }
@@ -286,9 +315,22 @@ let EventSimulator$1 = class EventSimulator2 {
   simulateKeyPress(element, key, options = {}) {
     const { ctrlKey = false, shiftKey = false, altKey = false, metaKey = false } = options;
     element.focus();
-    const keyboardEvents = ["keydown", "keypress", "keyup"];
-    keyboardEvents.forEach((eventType) => {
-      const event = new KeyboardEvent(eventType, {
+    const keydownEvent = new KeyboardEvent("keydown", {
+      key,
+      code: this.getKeyCode(key),
+      bubbles: true,
+      cancelable: true,
+      ctrlKey,
+      shiftKey,
+      altKey,
+      metaKey
+    });
+    element.dispatchEvent(keydownEvent);
+    if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
+      this.handleNavigationKey(element, key);
+    }
+    if (!["Home", "End", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Backspace", "Delete"].includes(key)) {
+      const keypressEvent = new KeyboardEvent("keypress", {
         key,
         code: this.getKeyCode(key),
         bubbles: true,
@@ -298,9 +340,70 @@ let EventSimulator$1 = class EventSimulator2 {
         altKey,
         metaKey
       });
-      element.dispatchEvent(event);
-      this.logger.debug(`触发 ${eventType} 事件: ${key}`);
+      element.dispatchEvent(keypressEvent);
+    }
+    const keyupEvent = new KeyboardEvent("keyup", {
+      key,
+      code: this.getKeyCode(key),
+      bubbles: true,
+      cancelable: true,
+      ctrlKey,
+      shiftKey,
+      altKey,
+      metaKey
     });
+    element.dispatchEvent(keyupEvent);
+    this.logger.debug(`触发键盘事件: ${key}`);
+  }
+  /**
+   * 处理导航键的实际行为
+   */
+  handleNavigationKey(element, key) {
+    const start = element.selectionStart || 0;
+    const end = element.selectionEnd || 0;
+    const value = element.value || "";
+    switch (key) {
+      case "Home":
+        element.setSelectionRange(0, 0);
+        break;
+      case "End":
+        element.setSelectionRange(value.length, value.length);
+        break;
+      case "ArrowLeft":
+        if (start > 0) {
+          const newPos = Math.max(0, start - 1);
+          element.setSelectionRange(newPos, newPos);
+        }
+        break;
+      case "ArrowRight":
+        if (start < value.length) {
+          const newPos = Math.min(value.length, start + 1);
+          element.setSelectionRange(newPos, newPos);
+        }
+        break;
+      case "Backspace":
+        if (start === end && start > 0) {
+          element.value = value.slice(0, start - 1) + value.slice(end);
+          element.setSelectionRange(start - 1, start - 1);
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (start !== end) {
+          element.value = value.slice(0, start) + value.slice(end);
+          element.setSelectionRange(start, start);
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        break;
+      case "Delete":
+        if (start === end && start < value.length) {
+          element.value = value.slice(0, start) + value.slice(end + 1);
+          element.setSelectionRange(start, start);
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+        } else if (start !== end) {
+          element.value = value.slice(0, start) + value.slice(end);
+          element.setSelectionRange(start, start);
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        break;
+    }
   }
   /**
    * 模拟输入序列
@@ -311,8 +414,13 @@ let EventSimulator$1 = class EventSimulator2 {
       element.focus();
       for (let i = 0; i < text.length; i++) {
         const char = text[i];
+        const start = element.selectionStart || 0;
+        const end = element.selectionEnd || 0;
         const currentValue = element.value || "";
-        element.value = currentValue + char;
+        const newValue = currentValue.slice(0, start) + char + currentValue.slice(end);
+        element.value = newValue;
+        const newCursorPos = start + 1;
+        element.setSelectionRange(newCursorPos, newCursorPos);
         element.dispatchEvent(new Event("input", { bubbles: true }));
         this.simulateKeyPress(element, char);
         if (delay > 0) {
@@ -348,6 +456,8 @@ let EventSimulator$1 = class EventSimulator2 {
       "Tab": "Tab",
       "Backspace": "Backspace",
       "Delete": "Delete",
+      "Home": "Home",
+      "End": "End",
       "ArrowUp": "ArrowUp",
       "ArrowDown": "ArrowDown",
       "ArrowLeft": "ArrowLeft",
@@ -367,14 +477,14 @@ let EventSimulator$1 = class EventSimulator2 {
       this.logger.debug("元素滚动到可视区域");
     });
   }
-};
+}
 if (typeof window !== "undefined") {
-  window.PlaywrightEventSimulator = EventSimulator$1;
+  window.PlaywrightEventSimulator = EventSimulator;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = EventSimulator$1;
+  module.exports = EventSimulator;
 }
-let LocatorAdapter$1 = class LocatorAdapter2 {
+class LocatorAdapter {
   constructor(selector, page, options = {}) {
     this.selector = selector;
     this.page = page;
@@ -389,7 +499,7 @@ let LocatorAdapter$1 = class LocatorAdapter2 {
    * 过滤 locator
    */
   filter(options) {
-    const newLocator = new LocatorAdapter2(this.selector, this.page);
+    const newLocator = new LocatorAdapter(this.selector, this.page);
     newLocator.filters = [...this.filters, options];
     return newLocator;
   }
@@ -410,6 +520,57 @@ let LocatorAdapter$1 = class LocatorAdapter2 {
    */
   nth(n) {
     return this.filter({ position: n });
+  }
+  /**
+   * 创建子 Locator (在当前 Locator 范围内查找)
+   */
+  locator(selector, options = {}) {
+    const combinedSelector = this.combineSelectorWithParent(selector);
+    const newLocator = new LocatorAdapter(combinedSelector, this.page, options);
+    newLocator.filters = [...this.filters];
+    return newLocator;
+  }
+  /**
+   * 将选择器与父选择器组合
+   */
+  combineSelectorWithParent(childSelector) {
+    if (childSelector.startsWith("xpath=")) {
+      const childXpath = childSelector.substring(6);
+      if (this.selector.startsWith("xpath=")) {
+        const parentXpath = this.selector.substring(6);
+        return `xpath=${parentXpath}//${childXpath}`;
+      } else {
+        return `xpath=//*[${this.cssSelectorToXPath(this.selector)}]//${childXpath}`;
+      }
+    }
+    if (this.selector.startsWith("xpath=")) {
+      const parentXpath = this.selector.substring(6);
+      const childXpath = this.cssSelectorToXPath(childSelector);
+      return `xpath=${parentXpath}//*[${childXpath}]`;
+    }
+    return `${this.selector} ${childSelector}`;
+  }
+  /**
+   * 将 CSS 选择器转换为 XPath 条件（简化版）
+   */
+  cssSelectorToXPath(cssSelector) {
+    if (cssSelector.startsWith("#")) {
+      return `@id="${cssSelector.substring(1)}"`;
+    } else if (cssSelector.startsWith(".")) {
+      return `contains(@class, "${cssSelector.substring(1)}")`;
+    } else if (cssSelector.startsWith("[") && cssSelector.endsWith("]")) {
+      const attrMatch = cssSelector.match(/\[([^=]+)="([^"]+)"\]/);
+      if (attrMatch) {
+        return `@${attrMatch[1]}="${attrMatch[2]}"`;
+      }
+      const attrExistsMatch = cssSelector.match(/\[([^=\]]+)\]/);
+      if (attrExistsMatch) {
+        return `@${attrExistsMatch[1]}`;
+      }
+    } else if (/^[a-zA-Z][a-zA-Z0-9]*$/.test(cssSelector)) {
+      return `self::${cssSelector}`;
+    }
+    return `self::*`;
   }
   /**
    * 根据文本过滤
@@ -694,12 +855,34 @@ let LocatorAdapter$1 = class LocatorAdapter2 {
   }
   // =============== 内部方法 ===============
   /**
+   * 查询元素（支持 CSS 和 XPath）
+   */
+  queryElements(selector) {
+    if (selector.startsWith("xpath=")) {
+      const xpath = selector.substring(6);
+      const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+      const elements = [];
+      for (let i = 0; i < result.snapshotLength; i++) {
+        elements.push(result.snapshotItem(i));
+      }
+      return elements;
+    } else {
+      return Array.from(document.querySelectorAll(selector));
+    }
+  }
+  /**
    * 获取元素数量
    */
   count() {
     return __async(this, null, function* () {
-      const elements = document.querySelectorAll(this.selector);
-      return this.applyFilters(Array.from(elements)).length;
+      const elements = this.queryElements(this.selector);
+      return this.applyFilters(elements).length;
     });
   }
   /**
@@ -707,10 +890,10 @@ let LocatorAdapter$1 = class LocatorAdapter2 {
    */
   all() {
     return __async(this, null, function* () {
-      const elements = document.querySelectorAll(this.selector);
-      const filtered = this.applyFilters(Array.from(elements));
+      const elements = this.queryElements(this.selector);
+      const filtered = this.applyFilters(elements);
       return filtered.map((element) => {
-        const locator = new LocatorAdapter2(this.buildUniqueSelector(element), this.page);
+        const locator = new LocatorAdapter(this.buildUniqueSelector(element), this.page);
         locator._element = element;
         return locator;
       });
@@ -724,11 +907,11 @@ let LocatorAdapter$1 = class LocatorAdapter2 {
       if (this._element && document.contains(this._element)) {
         return this._element;
       }
-      const elements = document.querySelectorAll(this.selector);
+      const elements = this.queryElements(this.selector);
       if (elements.length === 0) {
         throw new Error(`找不到元素: ${this.selector}`);
       }
-      const filteredElements = this.applyFilters(Array.from(elements));
+      const filteredElements = this.applyFilters(elements);
       if (filteredElements.length === 0) {
         throw new Error(`过滤后找不到元素: ${this.selector}`);
       }
@@ -797,18 +980,18 @@ let LocatorAdapter$1 = class LocatorAdapter2 {
     }
     return path.join(" > ");
   }
-};
+}
 if (typeof window !== "undefined") {
-  window.PlaywrightLocatorAdapter = LocatorAdapter$1;
+  window.PlaywrightLocatorAdapter = LocatorAdapter;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = LocatorAdapter$1;
+  module.exports = LocatorAdapter;
 }
-let PageAdapter$1 = class PageAdapter2 {
+class PageAdapter {
   constructor() {
     this.logger = new (window.PlaywrightLogger || console)();
-    this.waitManager = new (window.PlaywrightWaitManager || WaitManager)();
-    this.eventSimulator = new (window.PlaywrightEventSimulator || EventSimulator)();
+    this.waitManager = new window.PlaywrightWaitManager();
+    this.eventSimulator = new window.PlaywrightEventSimulator();
   }
   // =============== 导航方法 ===============
   /**
@@ -992,30 +1175,84 @@ let PageAdapter$1 = class PageAdapter2 {
       }
     });
   }
+  /**
+   * 聚焦元素
+   */
+  focus(_0) {
+    return __async(this, arguments, function* (selector, options = {}) {
+      const element = yield this.waitForSelector(selector);
+      yield this.scrollIntoViewIfNeeded(element);
+      element.focus();
+      this.logger.debug(`聚焦: ${selector}`);
+    });
+  }
   // =============== 现代定位器方法 ===============
   /**
    * 创建 Locator
    */
   locator(selector, options = {}) {
-    return new (window.PlaywrightLocatorAdapter || LocatorAdapter)(selector, this, options);
+    const LocatorAdapterClass = window.PlaywrightLocatorAdapter;
+    if (!LocatorAdapterClass) {
+      throw new Error("PlaywrightLocatorAdapter not found in global scope");
+    }
+    return new LocatorAdapterClass(selector, this, options);
   }
   /**
    * 根据角色定位
    */
   getByRole(role, options = {}) {
     const { name, exact = false, level } = options;
-    let selector = `[role="${role}"]`;
-    if (name) {
-      if (exact) {
-        selector += `[aria-label="${name}"], [role="${role}"][aria-labelledby] *:contains("${name}")`;
-      } else {
-        selector += `[aria-label*="${name}"], [role="${role}"][aria-labelledby] *:contains("${name}")`;
-      }
-    }
     if (level && role === "heading") {
-      selector = `h${level}[role="heading"], h${level}`;
+      return this.locator(`h${level}[role="heading"], h${level}`);
     }
-    return this.locator(selector);
+    let baseSelector = `[role="${role}"]`;
+    const implicitRoles = {
+      "button": 'button, input[type="button"], input[type="submit"], input[type="reset"]',
+      "link": "a[href]",
+      "textbox": 'input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="tel"], input[type="url"], textarea',
+      "combobox": "select",
+      "checkbox": 'input[type="checkbox"]',
+      "radio": 'input[type="radio"]',
+      "heading": "h1, h2, h3, h4, h5, h6"
+    };
+    if (implicitRoles[role]) {
+      baseSelector = `[role="${role}"], ${implicitRoles[role]}`;
+    }
+    if (name) {
+      let xpathParts = [`//*[@role="${role}"]`];
+      if (implicitRoles[role]) {
+        const elements = implicitRoles[role].split(", ");
+        elements.forEach((element) => {
+          if (element.includes("[")) {
+            const [tag, attrPart] = element.split("[");
+            const attr = attrPart.replace(/\]$/, "");
+            if (attr.includes("=")) {
+              const [attrName, attrValue] = attr.split("=");
+              const cleanAttrName = attrName.trim();
+              const cleanAttrValue = attrValue.replace(/['"]/g, "").trim();
+              xpathParts.push(`//${tag}[@${cleanAttrName}="${cleanAttrValue}"]`);
+            } else {
+              const cleanAttrName = attr.trim();
+              xpathParts.push(`//${tag}[@${cleanAttrName}]`);
+            }
+          } else {
+            xpathParts.push(`//${element}`);
+          }
+        });
+      }
+      let xpath;
+      if (exact) {
+        xpath = xpathParts.map(
+          (part) => `${part}[@aria-label="${name}"] | ${part}[normalize-space(text())="${name}"]`
+        ).join(" | ");
+      } else {
+        xpath = xpathParts.map(
+          (part) => `${part}[contains(@aria-label, "${name}")] | ${part}[contains(normalize-space(text()), "${name}")]`
+        ).join(" | ");
+      }
+      return this.locator(`xpath=${xpath}`);
+    }
+    return this.locator(baseSelector);
   }
   /**
    * 根据文本定位
@@ -1035,9 +1272,13 @@ let PageAdapter$1 = class PageAdapter2 {
    */
   getByLabel(text, options = {}) {
     const { exact = false } = options;
-    const labelSelector = exact ? `label:contains("${text}")` : `label:contains("${text}")`;
-    const selector = `${labelSelector} input, input[id]:has(+ label:contains("${text}")), input[aria-labelledby]:has(~ *:contains("${text}"))`;
-    return this.locator(selector);
+    let xpath;
+    if (exact) {
+      xpath = `//input[@id = //label[normalize-space(text())="${text}"]/@for] | //label[normalize-space(text())="${text}"]//input | //input[@aria-labelledby = //label[normalize-space(text())="${text}"]/@id]`;
+    } else {
+      xpath = `//input[@id = //label[contains(normalize-space(text()), "${text}")]/@for] | //label[contains(normalize-space(text()), "${text}")]//input | //input[@aria-labelledby = //label[contains(normalize-space(text()), "${text}")]/@id]`;
+    }
+    return this.locator(`xpath=${xpath}`);
   }
   /**
    * 根据占位符定位
@@ -1071,8 +1312,17 @@ let PageAdapter$1 = class PageAdapter2 {
       if (selector.startsWith("xpath=")) {
         return this.waitForXPath(selector.substring(6), { timeout, state });
       }
-      const element = yield this.waitManager.waitForElement(selector, timeout);
-      if (state === "visible") {
+      let actualSelector = selector;
+      let requiredState = state;
+      if (selector.includes(":visible")) {
+        actualSelector = selector.replace(":visible", "");
+        requiredState = "visible";
+      } else if (selector.includes(":hidden")) {
+        actualSelector = selector.replace(":hidden", "");
+        requiredState = "hidden";
+      }
+      const element = yield this.waitManager.waitForElement(actualSelector, timeout);
+      if (requiredState === "visible") {
         yield this.waitManager.waitForCondition(
           () => {
             const rect = element.getBoundingClientRect();
@@ -1080,7 +1330,17 @@ let PageAdapter$1 = class PageAdapter2 {
             return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
           },
           timeout,
-          `元素 "${selector}" 等待可见超时`
+          `元素 "${actualSelector}" 等待可见超时`
+        );
+      } else if (requiredState === "hidden") {
+        yield this.waitManager.waitForCondition(
+          () => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width === 0 || rect.height === 0 || style.visibility === "hidden" || style.display === "none";
+          },
+          timeout,
+          `元素 "${actualSelector}" 等待隐藏超时`
         );
       }
       return element;
@@ -1251,12 +1511,12 @@ let PageAdapter$1 = class PageAdapter2 {
   viewportSize() {
     return { width: window.innerWidth, height: window.innerHeight };
   }
-};
+}
 if (typeof window !== "undefined") {
-  window.PlaywrightPageAdapter = PageAdapter$1;
+  window.PlaywrightPageAdapter = PageAdapter;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = PageAdapter$1;
+  module.exports = PageAdapter;
 }
 let ExpectAdapter$1 = class ExpectAdapter2 {
   constructor(target, options = {}) {
@@ -1303,20 +1563,20 @@ let ExpectAdapter$1 = class ExpectAdapter2 {
   toBeHidden() {
     return __async(this, arguments, function* (options = {}) {
       const timeout = options.timeout || this.timeout;
-      const expected = this.isNot;
+      const expected = !this.isNot;
       try {
         yield this.waitForCondition(
           () => __async(this, null, function* () {
             const isVisible = yield this.target.isVisible();
-            return isVisible === expected;
+            return isVisible !== expected;
           }),
           timeout,
-          `期望元素${expected ? "可见" : "隐藏"}`
+          `期望元素${expected ? "隐藏" : "可见"}`
         );
-        this.logger.debug(`✅ 元素${expected ? "可见" : "隐藏"}断言通过`);
+        this.logger.debug(`✅ 元素${expected ? "隐藏" : "可见"}断言通过`);
       } catch (error) {
         const actualVisible = yield this.target.isVisible();
-        throw new Error(`期望元素${expected ? "可见" : "隐藏"}，但实际${actualVisible ? "可见" : "隐藏"}`);
+        throw new Error(`期望元素${expected ? "隐藏" : "可见"}，但实际${actualVisible ? "可见" : "隐藏"}`);
       }
     });
   }
@@ -1633,13 +1893,36 @@ let ExpectAdapter$1 = class ExpectAdapter2 {
       }
     });
   }
+  // =============== 通用断言 ===============
+  /**
+   * 断言包含指定值（用于数组等）
+   */
+  toContain(expectedValue) {
+    try {
+      let contains;
+      if (Array.isArray(this.target)) {
+        contains = this.target.includes(expectedValue);
+      } else if (typeof this.target === "string") {
+        contains = this.target.includes(expectedValue);
+      } else {
+        throw new Error("toContain 只支持数组或字符串类型");
+      }
+      const shouldContain = !this.isNot;
+      if (contains !== shouldContain) {
+        throw new Error(`期望${shouldContain ? "" : "不"}包含 "${expectedValue}"`);
+      }
+      this.logger.debug(`✅ 包含${shouldContain ? "" : "不"}断言通过`);
+    } catch (error) {
+      throw new Error(`期望${this.isNot ? "不" : ""}包含 "${expectedValue}"，但目标值为 ${JSON.stringify(this.target)}`);
+    }
+  }
   // =============== 辅助方法 ===============
   /**
    * 等待条件满足
    */
   waitForCondition(conditionFn, timeout, description) {
     return __async(this, null, function* () {
-      const startTime2 = Date.now();
+      const startTime = Date.now();
       const check = () => __async(this, null, function* () {
         try {
           const result = yield conditionFn();
@@ -1648,7 +1931,7 @@ let ExpectAdapter$1 = class ExpectAdapter2 {
           }
         } catch (error) {
         }
-        if (Date.now() - startTime2 >= timeout) {
+        if (Date.now() - startTime >= timeout) {
           throw new Error(`${description}超时 (${timeout}ms)`);
         }
         yield new Promise((resolve) => setTimeout(resolve, 100));
@@ -1696,13 +1979,13 @@ let PlaywrightRuntime$1 = class PlaywrightRuntime2 {
         name,
         fn: testFn,
         run: () => __async(this, null, function* () {
-          const page = new (window.PlaywrightPageAdapter || PageAdapter)();
+          const page = new window.PlaywrightPageAdapter();
           const context = { page };
+          const startTime = Date.now();
           try {
             self.logger.info(`🧪 开始测试: ${name}`);
-            const startTime2 = Date.now();
             yield testFn(context);
-            const duration = Date.now() - startTime2;
+            const duration = Date.now() - startTime;
             self.logger.success(`✅ 测试通过: ${name} (${duration}ms)`);
             return { success: true, duration, name };
           } catch (error) {
@@ -1892,7 +2175,7 @@ let PlaywrightRuntime$1 = class PlaywrightRuntime2 {
       for (const hook of hooks) {
         try {
           if (testCase) {
-            const page = new (window.PlaywrightPageAdapter || PageAdapter)();
+            const page = new window.PlaywrightPageAdapter();
             yield hook({ page });
           } else {
             yield hook();
@@ -1968,9 +2251,9 @@ class TestRunner {
     return __async(this, null, function* () {
       try {
         this.logger.info(`🚀 执行脚本: ${scriptName}`);
-        const startTime2 = Date.now();
+        const startTime = Date.now();
         const results = yield this.runtime.executeScript(scriptContent);
-        const duration = Date.now() - startTime2;
+        const duration = Date.now() - startTime;
         this.logger.success(`✅ 脚本执行完成: ${scriptName} (${duration}ms)`);
         return {
           scriptName,
@@ -2148,10 +2431,10 @@ if (typeof module !== "undefined" && module.exports) {
 function ensureDependencies() {
   const dependencies = {
     PlaywrightLogger: Logger,
-    PlaywrightWaitManager: WaitManager$1,
-    PlaywrightEventSimulator: EventSimulator$1,
-    PlaywrightLocatorAdapter: LocatorAdapter$1,
-    PlaywrightPageAdapter: PageAdapter$1,
+    PlaywrightWaitManager: WaitManager,
+    PlaywrightEventSimulator: EventSimulator,
+    PlaywrightLocatorAdapter: LocatorAdapter,
+    PlaywrightPageAdapter: PageAdapter,
     PlaywrightExpectAdapter: ExpectAdapter$1,
     createExpect,
     PlaywrightRuntime: PlaywrightRuntime$1,
@@ -2202,7 +2485,13 @@ class PlaywrightExecutionEngine {
    * 创建新的 Page 实例
    */
   createPage() {
-    return new PageAdapter$1();
+    return new PageAdapter();
+  }
+  /**
+   * 获取 Page 实例（createPage 的别名）
+   */
+  getPage() {
+    return this.createPage();
   }
   /**
    * 创建 expect 实例
@@ -2284,10 +2573,10 @@ PlaywrightExecutionEngine.load = function(_0) {
 };
 PlaywrightExecutionEngine.Components = {
   Logger,
-  WaitManager: WaitManager$1,
-  EventSimulator: EventSimulator$1,
-  PageAdapter: PageAdapter$1,
-  LocatorAdapter: LocatorAdapter$1,
+  WaitManager,
+  EventSimulator,
+  PageAdapter,
+  LocatorAdapter,
   ExpectAdapter: ExpectAdapter$1,
   Runtime: PlaywrightRuntime$1,
   TestRunner
@@ -2302,14 +2591,14 @@ if (typeof window !== "undefined") {
   console.log("使用方法: new PlaywrightExecutionEngine() 或 PlaywrightExecutionEngine.create()");
 }
 export {
-  EventSimulator$1 as PlaywrightEventSimulator,
+  EventSimulator as PlaywrightEventSimulator,
   ExpectAdapter$1 as PlaywrightExpectAdapter,
-  LocatorAdapter$1 as PlaywrightLocatorAdapter,
+  LocatorAdapter as PlaywrightLocatorAdapter,
   Logger as PlaywrightLogger,
-  PageAdapter$1 as PlaywrightPageAdapter,
+  PageAdapter as PlaywrightPageAdapter,
   PlaywrightRuntime$1 as PlaywrightRuntime,
   TestRunner as PlaywrightTestRunner,
-  WaitManager$1 as PlaywrightWaitManager,
+  WaitManager as PlaywrightWaitManager,
   createExpect,
   PlaywrightExecutionEngine as default
 };

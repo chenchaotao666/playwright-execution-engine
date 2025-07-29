@@ -45,6 +45,75 @@ class LocatorAdapter {
   }
 
   /**
+   * 创建子 Locator (在当前 Locator 范围内查找)
+   */
+  locator(selector, options = {}) {
+    // 创建组合选择器，表示在当前选择器范围内查找子选择器
+    const combinedSelector = this.combineSelectorWithParent(selector);
+    const newLocator = new LocatorAdapter(combinedSelector, this.page, options);
+    // 继承当前的过滤器
+    newLocator.filters = [...this.filters];
+    return newLocator;
+  }
+
+  /**
+   * 将选择器与父选择器组合
+   */
+  combineSelectorWithParent(childSelector) {
+    // 如果子选择器是 XPath，需要特殊处理
+    if (childSelector.startsWith('xpath=')) {
+      const childXpath = childSelector.substring(6);
+      if (this.selector.startsWith('xpath=')) {
+        const parentXpath = this.selector.substring(6);
+        return `xpath=${parentXpath}//${childXpath}`;
+      } else {
+        // 父选择器是 CSS，子选择器是 XPath - 需要转换
+        return `xpath=//*[${this.cssSelectorToXPath(this.selector)}]//${childXpath}`;
+      }
+    }
+    
+    // 如果父选择器是 XPath，子选择器是 CSS
+    if (this.selector.startsWith('xpath=')) {
+      const parentXpath = this.selector.substring(6);
+      const childXpath = this.cssSelectorToXPath(childSelector);
+      return `xpath=${parentXpath}//*[${childXpath}]`;
+    }
+    
+    // 两个都是 CSS 选择器
+    return `${this.selector} ${childSelector}`;
+  }
+
+  /**
+   * 将 CSS 选择器转换为 XPath 条件（简化版）
+   */
+  cssSelectorToXPath(cssSelector) {
+    // 简化的 CSS 到 XPath 转换
+    if (cssSelector.startsWith('#')) {
+      // ID 选择器
+      return `@id="${cssSelector.substring(1)}"`;
+    } else if (cssSelector.startsWith('.')) {
+      // 类选择器
+      return `contains(@class, "${cssSelector.substring(1)}")`;
+    } else if (cssSelector.startsWith('[') && cssSelector.endsWith(']')) {
+      // 属性选择器
+      const attrMatch = cssSelector.match(/\[([^=]+)="([^"]+)"\]/);
+      if (attrMatch) {
+        return `@${attrMatch[1]}="${attrMatch[2]}"`;
+      }
+      const attrExistsMatch = cssSelector.match(/\[([^=\]]+)\]/);
+      if (attrExistsMatch) {
+        return `@${attrExistsMatch[1]}`;
+      }
+    } else if (/^[a-zA-Z][a-zA-Z0-9]*$/.test(cssSelector)) {
+      // 标签选择器
+      return `self::${cssSelector}`;
+    }
+    
+    // 复杂选择器 - 暂时不支持完整转换，回退到组合 CSS
+    return `self::*`;
+  }
+
+  /**
    * 根据文本过滤
    */
   getByText(text, options = {}) {
@@ -325,19 +394,43 @@ class LocatorAdapter {
   // =============== 内部方法 ===============
 
   /**
+   * 查询元素（支持 CSS 和 XPath）
+   */
+  queryElements(selector) {
+    if (selector.startsWith('xpath=')) {
+      const xpath = selector.substring(6);
+      const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+      
+      const elements = [];
+      for (let i = 0; i < result.snapshotLength; i++) {
+        elements.push(result.snapshotItem(i));
+      }
+      return elements;
+    } else {
+      return Array.from(document.querySelectorAll(selector));
+    }
+  }
+
+  /**
    * 获取元素数量
    */
   async count() {
-    const elements = document.querySelectorAll(this.selector);
-    return this.applyFilters(Array.from(elements)).length;
+    const elements = this.queryElements(this.selector);
+    return this.applyFilters(elements).length;
   }
 
   /**
    * 获取所有匹配的元素
    */
   async all() {
-    const elements = document.querySelectorAll(this.selector);
-    const filtered = this.applyFilters(Array.from(elements));
+    const elements = this.queryElements(this.selector);
+    const filtered = this.applyFilters(elements);
     
     return filtered.map(element => {
       const locator = new LocatorAdapter(this.buildUniqueSelector(element), this.page);
@@ -355,13 +448,13 @@ class LocatorAdapter {
       return this._element;
     }
 
-    const elements = document.querySelectorAll(this.selector);
+    const elements = this.queryElements(this.selector);
     
     if (elements.length === 0) {
       throw new Error(`找不到元素: ${this.selector}`);
     }
 
-    const filteredElements = this.applyFilters(Array.from(elements));
+    const filteredElements = this.applyFilters(elements);
 
     if (filteredElements.length === 0) {
       throw new Error(`过滤后找不到元素: ${this.selector}`);

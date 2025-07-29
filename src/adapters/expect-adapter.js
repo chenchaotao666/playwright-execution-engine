@@ -49,22 +49,22 @@ class ExpectAdapter {
    */
   async toBeHidden(options = {}) {
     const timeout = options.timeout || this.timeout;
-    const expected = this.isNot;
+    const expected = !this.isNot; // Hidden means NOT visible
     
     try {
       await this.waitForCondition(
         async () => {
           const isVisible = await this.target.isVisible();
-          return isVisible === expected;
+          return isVisible !== expected; // Element should NOT be visible when expected to be hidden
         },
         timeout,
-        `期望元素${expected ? '可见' : '隐藏'}`
+        `期望元素${expected ? '隐藏' : '可见'}`
       );
       
-      this.logger.debug(`✅ 元素${expected ? '可见' : '隐藏'}断言通过`);
+      this.logger.debug(`✅ 元素${expected ? '隐藏' : '可见'}断言通过`);
     } catch (error) {
       const actualVisible = await this.target.isVisible();
-      throw new Error(`期望元素${expected ? '可见' : '隐藏'}，但实际${actualVisible ? '可见' : '隐藏'}`);
+      throw new Error(`期望元素${expected ? '隐藏' : '可见'}，但实际${actualVisible ? '可见' : '隐藏'}`);
     }
   }
 
@@ -413,6 +413,34 @@ class ExpectAdapter {
     } catch (error) {
       const currentTitle = document.title;
       throw new Error(`期望标题${this.isNot ? '不' : ''}匹配 "${expectedTitle}"，但当前标题为 "${currentTitle}"`);
+    }
+  }
+
+  // =============== 通用断言 ===============
+
+  /**
+   * 断言包含指定值（用于数组等）
+   */
+  toContain(expectedValue) {
+    try {
+      let contains;
+      
+      if (Array.isArray(this.target)) {
+        contains = this.target.includes(expectedValue);
+      } else if (typeof this.target === 'string') {
+        contains = this.target.includes(expectedValue);
+      } else {
+        throw new Error('toContain 只支持数组或字符串类型');
+      }
+      
+      const shouldContain = !this.isNot;
+      if (contains !== shouldContain) {
+        throw new Error(`期望${shouldContain ? '' : '不'}包含 "${expectedValue}"`);
+      }
+      
+      this.logger.debug(`✅ 包含${shouldContain ? '' : '不'}断言通过`);
+    } catch (error) {
+      throw new Error(`期望${this.isNot ? '不' : ''}包含 "${expectedValue}"，但目标值为 ${JSON.stringify(this.target)}`);
     }
   }
 

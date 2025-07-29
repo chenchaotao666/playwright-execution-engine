@@ -8,6 +8,37 @@ class WaitManager {
   }
 
   /**
+   * 查询单个元素（支持 CSS、XPath 和 text）
+   */
+  querySelector(selector) {
+    if (selector.startsWith('xpath=')) {
+      const xpath = selector.substring(6);
+      const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      );
+      return result.singleNodeValue;
+    } else if (selector.startsWith('text=')) {
+      const text = selector.substring(5);
+      // 使用 XPath 查找包含指定文本的元素
+      const xpath = `//*[contains(normalize-space(text()), "${text}")]`;
+      const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      );
+      return result.singleNodeValue;
+    } else {
+      return document.querySelector(selector);
+    }
+  }
+
+  /**
    * 等待元素出现
    */
   async waitForElement(selector, timeout = this.defaultTimeout) {
@@ -15,7 +46,7 @@ class WaitManager {
       const startTime = Date.now();
       
       // 立即检查
-      const existing = document.querySelector(selector);
+      const existing = this.querySelector(selector);
       if (existing) {
         this.logger.debug(`元素立即找到: ${selector}`);
         return resolve(existing);
@@ -37,7 +68,7 @@ class WaitManager {
 
       // 监听 DOM 变化
       observer = new MutationObserver(() => {
-        const element = document.querySelector(selector);
+        const element = this.querySelector(selector);
         if (element) {
           cleanup();
           const elapsed = Date.now() - startTime;

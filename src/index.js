@@ -86,6 +86,13 @@ class PlaywrightExecutionEngine {
   }
 
   /**
+   * 获取 Page 实例（createPage 的别名）
+   */
+  getPage() {
+    return this.createPage();
+  }
+
+  /**
    * 创建 expect 实例
    */
   expect(target) {

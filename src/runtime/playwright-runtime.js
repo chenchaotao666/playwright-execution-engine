@@ -36,12 +36,12 @@ class PlaywrightRuntime {
         name,
         fn: testFn,
         run: async () => {
-          const page = new (window.PlaywrightPageAdapter || PageAdapter)();
+          const page = new window.PlaywrightPageAdapter();
           const context = { page };
-          
+          const startTime = Date.now();
+
           try {
             self.logger.info(`🧪 开始测试: ${name}`);
-            const startTime = Date.now();
             
             await testFn(context);
             
@@ -285,7 +285,7 @@ class PlaywrightRuntime {
     for (const hook of hooks) {
       try {
         if (testCase) {
-          const page = new (window.PlaywrightPageAdapter || PageAdapter)();
+          const page = new window.PlaywrightPageAdapter();
           await hook({ page });
         } else {
           await hook();

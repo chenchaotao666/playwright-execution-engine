@@ -77,10 +77,28 @@ class EventSimulator {
     
     element.focus();
     
-    const keyboardEvents = ['keydown', 'keypress', 'keyup'];
+    // 首先触发 keydown 事件
+    const keydownEvent = new KeyboardEvent('keydown', {
+      key: key,
+      code: this.getKeyCode(key),
+      bubbles: true,
+      cancelable: true,
+      ctrlKey,
+      shiftKey,
+      altKey,
+      metaKey
+    });
     
-    keyboardEvents.forEach(eventType => {
-      const event = new KeyboardEvent(eventType, {
+    element.dispatchEvent(keydownEvent);
+    
+    // 处理特殊导航键的实际行为
+    if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+      this.handleNavigationKey(element, key);
+    }
+    
+    // 触发 keypress 事件 (某些键不触发 keypress)
+    if (!['Home', 'End', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Backspace', 'Delete'].includes(key)) {
+      const keypressEvent = new KeyboardEvent('keypress', {
         key: key,
         code: this.getKeyCode(key),
         bubbles: true,
@@ -90,10 +108,84 @@ class EventSimulator {
         altKey,
         metaKey
       });
-      
-      element.dispatchEvent(event);
-      this.logger.debug(`触发 ${eventType} 事件: ${key}`);
+      element.dispatchEvent(keypressEvent);
+    }
+    
+    // 触发 keyup 事件
+    const keyupEvent = new KeyboardEvent('keyup', {
+      key: key,
+      code: this.getKeyCode(key),
+      bubbles: true,
+      cancelable: true,
+      ctrlKey,
+      shiftKey,
+      altKey,
+      metaKey
     });
+    
+    element.dispatchEvent(keyupEvent);
+    this.logger.debug(`触发键盘事件: ${key}`);
+  }
+
+  /**
+   * 处理导航键的实际行为
+   */
+  handleNavigationKey(element, key) {
+    const start = element.selectionStart || 0;
+    const end = element.selectionEnd || 0;
+    const value = element.value || '';
+    
+    switch (key) {
+      case 'Home':
+        element.setSelectionRange(0, 0);
+        break;
+        
+      case 'End':
+        element.setSelectionRange(value.length, value.length);
+        break;
+        
+      case 'ArrowLeft':
+        if (start > 0) {
+          const newPos = Math.max(0, start - 1);
+          element.setSelectionRange(newPos, newPos);
+        }
+        break;
+        
+      case 'ArrowRight':
+        if (start < value.length) {
+          const newPos = Math.min(value.length, start + 1);
+          element.setSelectionRange(newPos, newPos);
+        }
+        break;
+        
+      case 'Backspace':
+        if (start === end && start > 0) {
+          // 删除光标前的字符
+          element.value = value.slice(0, start - 1) + value.slice(end);
+          element.setSelectionRange(start - 1, start - 1);
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        } else if (start !== end) {
+          // 删除选中文本
+          element.value = value.slice(0, start) + value.slice(end);
+          element.setSelectionRange(start, start);
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        break;
+        
+      case 'Delete':
+        if (start === end && start < value.length) {
+          // 删除光标后的字符
+          element.value = value.slice(0, start) + value.slice(end + 1);
+          element.setSelectionRange(start, start);
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        } else if (start !== end) {
+          // 删除选中文本
+          element.value = value.slice(0, start) + value.slice(end);
+          element.setSelectionRange(start, start);
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        break;
+    }
   }
 
   /**
@@ -107,9 +199,18 @@ class EventSimulator {
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
       
-      // 更新输入值
+      // 获取当前光标位置
+      const start = element.selectionStart || 0;
+      const end = element.selectionEnd || 0;
       const currentValue = element.value || '';
-      element.value = currentValue + char;
+      
+      // 在光标位置插入字符
+      const newValue = currentValue.slice(0, start) + char + currentValue.slice(end);
+      element.value = newValue;
+      
+      // 更新光标位置
+      const newCursorPos = start + 1;
+      element.setSelectionRange(newCursorPos, newCursorPos);
       
       // 触发输入事件
       element.dispatchEvent(new Event('input', { bubbles: true }));
@@ -154,6 +255,8 @@ class EventSimulator {
       'Tab': 'Tab',
       'Backspace': 'Backspace',
       'Delete': 'Delete',
+      'Home': 'Home',
+      'End': 'End',
       'ArrowUp': 'ArrowUp',
       'ArrowDown': 'ArrowDown',
       'ArrowLeft': 'ArrowLeft',

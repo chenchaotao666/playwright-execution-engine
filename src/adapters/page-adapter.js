@@ -4,8 +4,8 @@
 class PageAdapter {
   constructor() {
     this.logger = new (window.PlaywrightLogger || console)();
-    this.waitManager = new (window.PlaywrightWaitManager || WaitManager)();
-    this.eventSimulator = new (window.PlaywrightEventSimulator || EventSimulator)();
+    this.waitManager = new window.PlaywrightWaitManager();
+    this.eventSimulator = new window.PlaywrightEventSimulator();
   }
 
   // =============== 导航方法 ===============
@@ -192,13 +192,29 @@ class PageAdapter {
     }
   }
 
+  /**
+   * 聚焦元素
+   */
+  async focus(selector, options = {}) {
+    const element = await this.waitForSelector(selector);
+    await this.scrollIntoViewIfNeeded(element);
+    
+    element.focus();
+    this.logger.debug(`聚焦: ${selector}`);
+  }
+
   // =============== 现代定位器方法 ===============
 
   /**
    * 创建 Locator
    */
   locator(selector, options = {}) {
-    return new (window.PlaywrightLocatorAdapter || LocatorAdapter)(selector, this, options);
+    // 动态获取 LocatorAdapter 类
+    const LocatorAdapterClass = window.PlaywrightLocatorAdapter;
+    if (!LocatorAdapterClass) {
+      throw new Error('PlaywrightLocatorAdapter not found in global scope');
+    }
+    return new LocatorAdapterClass(selector, this, options);
   }
 
   /**
@@ -206,21 +222,75 @@ class PageAdapter {
    */
   getByRole(role, options = {}) {
     const { name, exact = false, level } = options;
-    let selector = `[role="${role}"]`;
-    
-    if (name) {
-      if (exact) {
-        selector += `[aria-label="${name}"], [role="${role}"][aria-labelledby] *:contains("${name}")`;
-      } else {
-        selector += `[aria-label*="${name}"], [role="${role}"][aria-labelledby] *:contains("${name}")`;
-      }
-    }
     
     if (level && role === 'heading') {
-      selector = `h${level}[role="heading"], h${level}`;
+      return this.locator(`h${level}[role="heading"], h${level}`);
     }
     
-    return this.locator(selector);
+    // 构建基础的角色选择器，包括隐式角色
+    let baseSelector = `[role="${role}"]`;
+    
+    // 添加隐式 ARIA 角色的元素
+    const implicitRoles = {
+      'button': 'button, input[type="button"], input[type="submit"], input[type="reset"]',
+      'link': 'a[href]',
+      'textbox': 'input[type="text"], input[type="email"], input[type="password"], input[type="search"], input[type="tel"], input[type="url"], textarea',
+      'combobox': 'select',
+      'checkbox': 'input[type="checkbox"]',
+      'radio': 'input[type="radio"]',
+      'heading': 'h1, h2, h3, h4, h5, h6'
+    };
+    
+    if (implicitRoles[role]) {
+      baseSelector = `[role="${role}"], ${implicitRoles[role]}`;
+    }
+    
+    if (name) {
+      // 使用 XPath 处理复杂的文本匹配，包括隐式角色
+      let xpathParts = [`//*[@role="${role}"]`];
+      
+      // 添加隐式角色的 XPath
+      if (implicitRoles[role]) {
+        const elements = implicitRoles[role].split(', ');
+        elements.forEach(element => {
+          if (element.includes('[')) {
+            // 处理带属性的元素，如 input[type="text"]
+            const [tag, attrPart] = element.split('[');
+            // 移除右括号并解析属性
+            const attr = attrPart.replace(/\]$/, '');
+            
+            if (attr.includes('=')) {
+              // 有值的属性，如 type="button"
+              const [attrName, attrValue] = attr.split('=');
+              const cleanAttrName = attrName.trim();
+              const cleanAttrValue = attrValue.replace(/['"]/g, '').trim();
+              xpathParts.push(`//${tag}[@${cleanAttrName}="${cleanAttrValue}"]`);
+            } else {
+              // 仅存在性检查的属性
+              const cleanAttrName = attr.trim();
+              xpathParts.push(`//${tag}[@${cleanAttrName}]`);
+            }
+          } else {
+            // 简单标签名
+            xpathParts.push(`//${element}`);
+          }
+        });
+      }
+      
+      let xpath;
+      if (exact) {
+        xpath = xpathParts.map(part => 
+          `${part}[@aria-label="${name}"] | ${part}[normalize-space(text())="${name}"]`
+        ).join(' | ');
+      } else {
+        xpath = xpathParts.map(part => 
+          `${part}[contains(@aria-label, "${name}")] | ${part}[contains(normalize-space(text()), "${name}")]`
+        ).join(' | ');
+      }
+      return this.locator(`xpath=${xpath}`);
+    }
+    
+    return this.locator(baseSelector);
   }
 
   /**
@@ -245,15 +315,15 @@ class PageAdapter {
   getByLabel(text, options = {}) {
     const { exact = false } = options;
     
-    // 查找 label 关联的 input
-    const labelSelector = exact 
-      ? `label:contains("${text}")` 
-      : `label:contains("${text}")`;
+    // 使用 XPath 来查找标签文本相关的输入元素
+    let xpath;
+    if (exact) {
+      xpath = `//input[@id = //label[normalize-space(text())="${text}"]/@for] | //label[normalize-space(text())="${text}"]//input | //input[@aria-labelledby = //label[normalize-space(text())="${text}"]/@id]`;
+    } else {
+      xpath = `//input[@id = //label[contains(normalize-space(text()), "${text}")]/@for] | //label[contains(normalize-space(text()), "${text}")]//input | //input[@aria-labelledby = //label[contains(normalize-space(text()), "${text}")]/@id]`;
+    }
     
-    // 通过 for 属性或包含关系查找
-    const selector = `${labelSelector} input, input[id]:has(+ label:contains("${text}")), input[aria-labelledby]:has(~ *:contains("${text}"))`;
-    
-    return this.locator(selector);
+    return this.locator(`xpath=${xpath}`);
   }
 
   /**
@@ -300,9 +370,21 @@ class PageAdapter {
       return this.waitForXPath(selector.substring(6), { timeout, state });
     }
     
-    const element = await this.waitManager.waitForElement(selector, timeout);
+    // 处理 :visible 和 :hidden 伪类选择器
+    let actualSelector = selector;
+    let requiredState = state;
     
-    if (state === 'visible') {
+    if (selector.includes(':visible')) {
+      actualSelector = selector.replace(':visible', '');
+      requiredState = 'visible';
+    } else if (selector.includes(':hidden')) {
+      actualSelector = selector.replace(':hidden', '');
+      requiredState = 'hidden';
+    }
+    
+    const element = await this.waitManager.waitForElement(actualSelector, timeout);
+    
+    if (requiredState === 'visible') {
       await this.waitManager.waitForCondition(
         () => {
           const rect = element.getBoundingClientRect();
@@ -311,7 +393,18 @@ class PageAdapter {
                  style.visibility !== 'hidden' && style.display !== 'none';
         },
         timeout,
-        `元素 "${selector}" 等待可见超时`
+        `元素 "${actualSelector}" 等待可见超时`
+      );
+    } else if (requiredState === 'hidden') {
+      await this.waitManager.waitForCondition(
+        () => {
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return rect.width === 0 || rect.height === 0 || 
+                 style.visibility === 'hidden' || style.display === 'none';
+        },
+        timeout,
+        `元素 "${actualSelector}" 等待隐藏超时`
       );
     }
     
