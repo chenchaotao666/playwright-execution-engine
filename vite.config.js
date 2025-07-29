@@ -8,7 +8,7 @@ export default defineConfig({
   build: {
     // 构建库模式
     lib: {
-      entry: resolve(__dirname, 'src/index.js'),
+      entry: resolve(__dirname, 'src/index.ts'),
       name: 'PlaywrightExecutionEngine',
       fileName: (format) => `playwright-execution-engine.${format}.js`,
       formats: ['umd', 'es', 'iife']

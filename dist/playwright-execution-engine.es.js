@@ -73,9 +73,6 @@ class Logger {
 if (typeof window !== "undefined") {
   window.PlaywrightLogger = Logger;
 }
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = Logger;
-}
 class WaitManager {
   constructor() {
     this.defaultTimeout = 3e4;
@@ -703,7 +700,7 @@ class LocatorAdapter {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
         return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none" && element.offsetParent !== null;
-      } catch (e) {
+      } catch (error) {
         return false;
       }
     });
@@ -724,7 +721,7 @@ class LocatorAdapter {
       try {
         const element = yield this.getElement();
         return !element.disabled && !element.hasAttribute("disabled");
-      } catch (e) {
+      } catch (error) {
         return false;
       }
     });
@@ -745,7 +742,7 @@ class LocatorAdapter {
       try {
         const element = yield this.getElement();
         return element.checked || false;
-      } catch (e) {
+      } catch (error) {
         return false;
       }
     });
@@ -817,6 +814,9 @@ class LocatorAdapter {
       }
     });
   }
+  /**
+   * 等待可见
+   */
   waitForVisible(timeout) {
     return __async(this, null, function* () {
       return this.waitManager.waitForCondition(
@@ -826,6 +826,9 @@ class LocatorAdapter {
       );
     });
   }
+  /**
+   * 等待隐藏
+   */
   waitForHidden(timeout) {
     return __async(this, null, function* () {
       return this.waitManager.waitForCondition(
@@ -835,6 +838,9 @@ class LocatorAdapter {
       );
     });
   }
+  /**
+   * 等待附加到DOM
+   */
   waitForAttached(timeout) {
     return __async(this, null, function* () {
       return this.waitManager.waitForCondition(
@@ -844,6 +850,9 @@ class LocatorAdapter {
       );
     });
   }
+  /**
+   * 等待从DOM分离
+   */
   waitForDetached(timeout) {
     return __async(this, null, function* () {
       return this.waitManager.waitForCondition(
@@ -853,23 +862,18 @@ class LocatorAdapter {
       );
     });
   }
-  // =============== 内部方法 ===============
+  // =============== 查询方法 ===============
   /**
-   * 查询元素（支持 CSS 和 XPath）
+   * 查询所有匹配的元素
    */
   queryElements(selector) {
     if (selector.startsWith("xpath=")) {
       const xpath = selector.substring(6);
-      const result = document.evaluate(
-        xpath,
-        document,
-        null,
-        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
-        null
-      );
+      const result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
       const elements = [];
       for (let i = 0; i < result.snapshotLength; i++) {
-        elements.push(result.snapshotItem(i));
+        const element = result.snapshotItem(i);
+        if (element) elements.push(element);
       }
       return elements;
     } else {
@@ -877,7 +881,7 @@ class LocatorAdapter {
     }
   }
   /**
-   * 获取元素数量
+   * 获取匹配元素的数量
    */
   count() {
     return __async(this, null, function* () {
@@ -886,13 +890,13 @@ class LocatorAdapter {
     });
   }
   /**
-   * 获取所有匹配的元素
+   * 获取所有匹配的 locator
    */
   all() {
     return __async(this, null, function* () {
       const elements = this.queryElements(this.selector);
-      const filtered = this.applyFilters(elements);
-      return filtered.map((element) => {
+      const filteredElements = this.applyFilters(elements);
+      return filteredElements.map((element) => {
         const locator = new LocatorAdapter(this.buildUniqueSelector(element), this.page);
         locator._element = element;
         return locator;
@@ -939,14 +943,14 @@ class LocatorAdapter {
       return elements.length > 0 ? [elements[elements.length - 1]] : [];
     }
     if (filter.hasText) {
-      return elements.filter((el) => {
-        const text = el.textContent || el.innerText || "";
+      return elements.filter((element) => {
+        const text = element.textContent || element.innerText || "";
         return filter.exact ? text === filter.hasText : text.includes(filter.hasText);
       });
     }
     if (filter.hasNotText) {
-      return elements.filter((el) => {
-        const text = el.textContent || el.innerText || "";
+      return elements.filter((element) => {
+        const text = element.textContent || element.innerText || "";
         return !text.includes(filter.hasNotText);
       });
     }
@@ -965,12 +969,14 @@ class LocatorAdapter {
     while (current && current !== document.body) {
       let selector = current.tagName.toLowerCase();
       if (current.className) {
-        const classes = current.className.split(" ").filter((c) => c.trim());
+        const classes = current.className.split(" ").filter((cls) => cls.trim());
         if (classes.length > 0) {
           selector += "." + classes.join(".");
         }
       }
-      const siblings = Array.from(((_a = current.parentNode) == null ? void 0 : _a.children) || []).filter((sibling) => sibling.tagName === current.tagName);
+      const siblings = Array.from(((_a = current.parentNode) == null ? void 0 : _a.children) || []).filter(
+        (child) => child.tagName === current.tagName
+      );
       if (siblings.length > 1) {
         const index = siblings.indexOf(current);
         selector += `:nth-of-type(${index + 1})`;
@@ -988,6 +994,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = LocatorAdapter;
 }
 class PageAdapter {
+  // TODO: Type this properly
   constructor() {
     this.logger = new (window.PlaywrightLogger || console)();
     this.waitManager = new window.PlaywrightWaitManager();
@@ -1310,7 +1317,7 @@ class PageAdapter {
     return __async(this, arguments, function* (selector, options = {}) {
       const { timeout = 3e4, state = "visible" } = options;
       if (selector.startsWith("xpath=")) {
-        return this.waitForXPath(selector.substring(6), { timeout, state });
+        return this.waitForXPath(selector.substring(6), { timeout });
       }
       let actualSelector = selector;
       let requiredState = state;
@@ -1395,7 +1402,7 @@ class PageAdapter {
   /**
    * 等待加载状态
    */
-  waitForLoadState(state = "load", timeout = 3e4) {
+  waitForLoadState(state = "load") {
     return __async(this, null, function* () {
       return this.waitManager.waitForLoadState(state);
     });
@@ -1464,6 +1471,7 @@ class PageAdapter {
         document.head.appendChild(style);
         return style;
       }
+      throw new Error("Either url or content must be provided");
     });
   }
   // =============== 辅助方法 ===============
@@ -1518,7 +1526,7 @@ if (typeof window !== "undefined") {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = PageAdapter;
 }
-let ExpectAdapter$1 = class ExpectAdapter2 {
+class ExpectAdapter {
   constructor(target, options = {}) {
     this.target = target;
     this.isNot = false;
@@ -1529,7 +1537,7 @@ let ExpectAdapter$1 = class ExpectAdapter2 {
    * 取反
    */
   get not() {
-    const newExpect = new ExpectAdapter2(this.target, { timeout: this.timeout });
+    const newExpect = new ExpectAdapter(this.target, { timeout: this.timeout });
     newExpect.isNot = !this.isNot;
     return newExpect;
   }
@@ -1927,7 +1935,7 @@ let ExpectAdapter$1 = class ExpectAdapter2 {
         try {
           const result = yield conditionFn();
           if (result) {
-            return result;
+            return;
           }
         } catch (error) {
         }
@@ -1940,20 +1948,20 @@ let ExpectAdapter$1 = class ExpectAdapter2 {
       return check();
     });
   }
-};
+}
 function createExpect() {
   return function expect(target) {
-    return new ExpectAdapter$1(target);
+    return new ExpectAdapter(target);
   };
 }
 if (typeof window !== "undefined") {
-  window.PlaywrightExpectAdapter = ExpectAdapter$1;
+  window.PlaywrightExpectAdapter = ExpectAdapter;
   window.PlaywrightExpect = createExpect();
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { ExpectAdapter: ExpectAdapter$1, createExpect };
+  module.exports = { ExpectAdapter, createExpect };
 }
-let PlaywrightRuntime$1 = class PlaywrightRuntime2 {
+class PlaywrightRuntime {
   constructor() {
     this.logger = new (window.PlaywrightLogger || console)();
     this.setupGlobalEnvironment();
@@ -1991,234 +1999,222 @@ let PlaywrightRuntime$1 = class PlaywrightRuntime2 {
           } catch (error) {
             const duration = Date.now() - startTime;
             self.logger.error(`❌ 测试失败: ${name} (${duration}ms)`, error);
-            return { success: false, error, duration, name };
+            return {
+              success: false,
+              duration,
+              name,
+              error
+            };
           }
         })
       };
     }
-    test.skip = (name, testFn) => {
-      self.logger.warn(`⏭️ 跳过测试: ${name}`);
+    test.skip = function(name, testFn) {
+      self.logger.info(`⏭️ 跳过测试: ${name}`);
       return {
         name,
         fn: testFn,
-        skipped: true,
         run: () => __async(this, null, function* () {
-          return { success: true, skipped: true, name };
+          return {
+            success: true,
+            duration: 0,
+            name: `${name} (跳过)`
+          };
         })
       };
     };
-    test.only = (name, testFn) => {
-      const testCase = test(name, testFn);
-      testCase.only = true;
-      return testCase;
+    test.only = function(name, testFn) {
+      self.logger.info(`🎯 仅运行测试: ${name}`);
+      return test(name, testFn);
     };
-    test.describe = (name, suiteFn) => {
-      self.logger.info(`📁 测试套件: ${name}`);
-      return suiteFn();
+    test.fixme = function(name, testFn) {
+      self.logger.info(`🔧 修复中的测试: ${name}`);
+      return {
+        name,
+        fn: testFn,
+        run: () => __async(this, null, function* () {
+          return {
+            success: true,
+            duration: 0,
+            name: `${name} (修复中)`
+          };
+        })
+      };
     };
-    test.beforeEach = (hookFn) => {
-      test._beforeEachHooks = test._beforeEachHooks || [];
-      test._beforeEachHooks.push(hookFn);
-    };
-    test.afterEach = (hookFn) => {
-      test._afterEachHooks = test._afterEachHooks || [];
-      test._afterEachHooks.push(hookFn);
-    };
-    test.beforeAll = (hookFn) => {
-      test._beforeAllHooks = test._beforeAllHooks || [];
-      test._beforeAllHooks.push(hookFn);
-    };
-    test.afterAll = (hookFn) => {
-      test._afterAllHooks = test._afterAllHooks || [];
-      test._afterAllHooks.push(hookFn);
+    test.describe = function(suiteName, suiteFn) {
+      self.logger.info(`📁 测试套件: ${suiteName}`);
+      suiteFn();
     };
     return test;
   }
   /**
-   * 创建 expect 函数
+   * 创建 expect 函数（如果不存在）
    */
   createExpectFunction() {
     return function expect(target) {
-      return new (window.PlaywrightExpectAdapter || ExpectAdapter)(target);
+      return new window.PlaywrightExpectAdapter(target);
     };
   }
   /**
    * 设置模块系统
    */
   setupModuleSystem() {
-    if (typeof window.importShim === "undefined") {
-      window.importShim = {
-        "@playwright/test": window.PlaywrightTest
+    if (!window.require) {
+      window.require = (moduleName) => {
+        switch (moduleName) {
+          case "@playwright/test":
+            return window.PlaywrightTest;
+          case "expect":
+            return window.PlaywrightExpected || this.createExpectFunction();
+          default:
+            throw new Error(`模块 "${moduleName}" 未找到`);
+        }
       };
     }
-  }
-  /**
-   * 直接执行 Playwright 脚本
-   */
-  executeScript(scriptContent) {
-    return __async(this, null, function* () {
-      try {
-        const transformedScript = this.transformImports(scriptContent);
-        const testCases = yield this.runInSandbox(transformedScript);
-        const results = yield this.runTests(testCases);
-        return results;
-      } catch (error) {
-        this.logger.error("脚本执行失败:", error);
-        throw error;
-      }
-    });
-  }
-  /**
-   * 转换 import 语句
-   */
-  transformImports(scriptContent) {
-    let transformed = scriptContent;
-    const importPatterns = [
-      // import { test, expect } from '@playwright/test';
-      /import\s*{\s*([^}]+)\s*}\s*from\s*['"]@playwright\/test['"];?/g,
-      // import { expect, test } from '@playwright/test';
-      /import\s*{\s*([^}]+)\s*}\s*from\s*['"]@playwright\/test['"];?/g,
-      // import * as pw from '@playwright/test';
-      /import\s*\*\s*as\s+(\w+)\s*from\s*['"]@playwright\/test['"];?/g
-    ];
-    transformed = transformed.replace(importPatterns[0], (match, imports) => {
-      const importItems = imports.split(",").map((item) => item.trim());
-      const declarations = importItems.map((item) => {
-        const cleanItem = item.replace(/\s+as\s+\w+/, "");
-        return `${item} = window.PlaywrightTest.${cleanItem}`;
-      }).join(", ");
-      return `const { ${declarations} } = window.PlaywrightTest;`;
-    });
-    transformed = transformed.replace(importPatterns[2], (match, namespace) => {
-      return `const ${namespace} = window.PlaywrightTest;`;
-    });
-    transformed = transformed.replace(
-      /import\s*{\s*test,?\s*expect\s*}\s*from\s*['"]@playwright\/test['"];?/g,
-      "const { test, expect } = window.PlaywrightTest;"
-    ).replace(
-      /import\s*{\s*expect,?\s*test\s*}\s*from\s*['"]@playwright\/test['"];?/g,
-      "const { test, expect } = window.PlaywrightTest;"
-    );
-    this.logger.debug("Import 语句转换完成");
-    return transformed;
-  }
-  /**
-   * 在沙箱环境中执行脚本
-   */
-  runInSandbox(scriptContent) {
-    return __async(this, null, function* () {
-      const testCases = [];
-      const originalTest = window.PlaywrightTest.test;
-      const self = this;
-      window.PlaywrightTest.test = function(name, fn) {
-        const testCase = originalTest(name, fn);
-        testCases.push(testCase);
-        self.logger.debug(`收集测试用例: ${name}`);
-        return testCase;
-      };
-      Object.keys(originalTest).forEach((key) => {
-        if (typeof originalTest[key] === "function") {
-          window.PlaywrightTest.test[key] = originalTest[key];
-        }
-      });
-      try {
-        const scriptFunction = new Function(scriptContent);
-        scriptFunction();
-        this.logger.info(`收集到 ${testCases.length} 个测试用例`);
-      } catch (error) {
-        this.logger.error("脚本执行出错:", error);
-        throw error;
-      } finally {
-        window.PlaywrightTest.test = originalTest;
-      }
-      return testCases;
-    });
-  }
-  /**
-   * 运行测试
-   */
-  runTests(testCases) {
-    return __async(this, null, function* () {
-      const results = [];
-      const onlyTests = testCases.filter((test) => test.only);
-      const testsToRun = onlyTests.length > 0 ? onlyTests : testCases.filter((test) => !test.skipped);
-      this.logger.info(`开始执行 ${testsToRun.length} 个测试`);
-      yield this.runHooks("_beforeAllHooks");
-      for (const testCase of testsToRun) {
+    if (!window.importFrom) {
+      const logger = this.logger;
+      window.importFrom = (moduleName, imports) => {
         try {
-          yield this.runHooks("_beforeEachHooks", testCase);
-          const result = yield testCase.run();
-          results.push(result);
-          yield this.runHooks("_afterEachHooks", testCase);
-        } catch (error) {
-          this.logger.error(`测试执行异常: ${testCase.name}`, error);
-          results.push({
-            success: false,
-            error,
-            name: testCase.name,
-            duration: 0
+          const module2 = window.require(moduleName);
+          const result = {};
+          imports.forEach((importName) => {
+            var _a, _b;
+            if (module2 && module2[importName] !== void 0) {
+              result[importName] = module2[importName];
+            } else if (module2 && importName === "default") {
+              result[importName] = module2;
+            } else {
+              logger.warn(`无法从模块 "${moduleName}" 找到导出 "${importName}"，使用默认值`);
+              if (moduleName === "@playwright/test") {
+                if (importName === "test") {
+                  result[importName] = (_a = window.PlaywrightTest) == null ? void 0 : _a.test;
+                } else if (importName === "expect") {
+                  result[importName] = (_b = window.PlaywrightTest) == null ? void 0 : _b.expect;
+                }
+              }
+            }
           });
+          return result;
+        } catch (error) {
+          logger.error(`模块导入失败: ${moduleName}`, error);
+          throw error;
         }
+      };
+    }
+    this.logger.debug("模块系统设置完成");
+  }
+  /**
+   * 预处理脚本内容，转换 ES6 import 语法
+   */
+  preprocessScript(scriptContent) {
+    let processedContent = scriptContent.replace(
+      /import\s*\{\s*[^}]+\s*\}\s*from\s*['"]@playwright\/test['"];?\s*\n?/g,
+      ""
+    );
+    processedContent = processedContent.replace(
+      /import\s*\*\s*as\s*\w+\s*from\s*['"]@playwright\/test['"];?\s*\n?/g,
+      ""
+    );
+    processedContent = processedContent.replace(
+      /import\s+\w+\s+from\s*['"]@playwright\/test['"];?\s*\n?/g,
+      ""
+    );
+    return processedContent;
+  }
+  /**
+   * 执行脚本代码
+   */
+  executeScript(scriptContent, scriptName = "inline") {
+    return __async(this, null, function* () {
+      var _a, _b, _c;
+      const results = [];
+      const tests = [];
+      try {
+        const originalTest = (_a = window.PlaywrightTest) == null ? void 0 : _a.test;
+        if (window.PlaywrightTest) {
+          window.PlaywrightTest.test = (name, testFn) => {
+            const testDef = originalTest(name, testFn);
+            tests.push(testDef);
+            return testDef;
+          };
+        }
+        const context = this.createExecutionContext();
+        this.logger.info(`📄 执行脚本: ${scriptName}`);
+        const processedContent = this.preprocessScript(scriptContent);
+        const scriptFunction = new Function(
+          "test",
+          "expect",
+          "require",
+          "importFrom",
+          processedContent
+        );
+        scriptFunction(
+          (_b = window.PlaywrightTest) == null ? void 0 : _b.test,
+          (_c = window.PlaywrightTest) == null ? void 0 : _c.expect,
+          window.require,
+          window.importFrom
+        );
+        if (window.PlaywrightTest && originalTest) {
+          window.PlaywrightTest.test = originalTest;
+        }
+        for (const test of tests) {
+          const result = yield test.run();
+          results.push(result);
+        }
+        this.logger.info(`📊 脚本执行完成: ${tests.length} 个测试`);
+      } catch (error) {
+        this.logger.error(`❌ 脚本执行失败: ${scriptName}`, error);
+        results.push({
+          success: false,
+          duration: 0,
+          name: `脚本执行: ${scriptName}`,
+          error
+        });
       }
-      yield this.runHooks("_afterAllHooks");
-      this.printTestSummary(results);
       return results;
     });
   }
   /**
-   * 运行钩子函数
+   * 创建执行上下文
    */
-  runHooks(hookType, testCase = null) {
-    return __async(this, null, function* () {
-      const test = window.PlaywrightTest.test;
-      const hooks = test[hookType] || [];
-      for (const hook of hooks) {
-        try {
-          if (testCase) {
-            const page = new window.PlaywrightPageAdapter();
-            yield hook({ page });
-          } else {
-            yield hook();
-          }
-        } catch (error) {
-          this.logger.error(`钩子函数执行失败 (${hookType}):`, error);
-        }
-      }
-    });
+  createExecutionContext() {
+    var _a, _b;
+    return {
+      console,
+      window,
+      document,
+      setTimeout,
+      setInterval,
+      clearTimeout,
+      clearInterval,
+      Promise,
+      fetch: window.fetch,
+      // Playwright 相关
+      test: (_a = window.PlaywrightTest) == null ? void 0 : _a.test,
+      expect: (_b = window.PlaywrightTest) == null ? void 0 : _b.expect,
+      require: window.require,
+      importFrom: window.importFrom
+    };
   }
   /**
-   * 打印测试总结
+   * 清理资源
    */
-  printTestSummary(results) {
-    const passed = results.filter((r) => r.success).length;
-    const failed = results.filter((r) => !r.success).length;
-    const skipped = results.filter((r) => r.skipped).length;
-    const totalDuration = results.reduce((sum, r) => sum + (r.duration || 0), 0);
-    this.logger.info(`
-📊 测试总结:
-   ✅ 通过: ${passed}
-   ❌ 失败: ${failed}
-   ⏭️ 跳过: ${skipped}
-   ⏱️ 总耗时: ${totalDuration}ms
-    `);
-    if (failed > 0) {
-      this.logger.error("失败的测试:");
-      results.filter((r) => !r.success).forEach((r) => {
-        var _a;
-        this.logger.error(`  - ${r.name}: ${(_a = r.error) == null ? void 0 : _a.message}`);
-      });
-    }
+  cleanup() {
+    delete window.PlaywrightTest;
+    delete window.require;
+    delete window.importFrom;
+    this.logger.debug("Playwright 运行时清理完成");
   }
-};
+}
 if (typeof window !== "undefined") {
-  window.PlaywrightRuntime = PlaywrightRuntime$1;
+  window.PlaywrightRuntime = PlaywrightRuntime;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = PlaywrightRuntime$1;
+  module.exports = PlaywrightRuntime;
 }
 class TestRunner {
   constructor(options = {}) {
-    this.runtime = new (window.PlaywrightRuntime || PlaywrightRuntime)();
+    this.runtime = new (window.PlaywrightRuntime || globalThis.PlaywrightRuntime)();
     this.logger = new (window.PlaywrightLogger || console)();
     this.options = __spreadValues({
       timeout: 3e4,
@@ -2311,8 +2307,12 @@ class TestRunner {
    * 设置全局钩子
    */
   setGlobalHooks(hooks) {
+    var _a;
     const { beforeAll, afterAll, beforeEach, afterEach } = hooks;
-    const test = window.PlaywrightTest.test;
+    const test = (_a = window.PlaywrightTest) == null ? void 0 : _a.test;
+    if (!test) {
+      throw new Error("PlaywrightTest.test 未找到");
+    }
     if (beforeAll) test.beforeAll(beforeAll);
     if (afterAll) test.afterAll(afterAll);
     if (beforeEach) test.beforeEach(beforeEach);
@@ -2399,14 +2399,15 @@ class TestRunner {
         duration: results.reduce((sum, r) => sum + r.duration, 0)
       };
     } else {
+      const singleResult = results;
       return {
         tests: {
-          total: ((_b = results.results) == null ? void 0 : _b.length) || 0,
-          passed: ((_c = results.results) == null ? void 0 : _c.filter((test) => test.success).length) || 0,
-          failed: ((_d = results.results) == null ? void 0 : _d.filter((test) => !test.success && !test.skipped).length) || 0,
-          skipped: ((_e = results.results) == null ? void 0 : _e.filter((test) => test.skipped).length) || 0
+          total: ((_b = singleResult.results) == null ? void 0 : _b.length) || 0,
+          passed: ((_c = singleResult.results) == null ? void 0 : _c.filter((test) => test.success).length) || 0,
+          failed: ((_d = singleResult.results) == null ? void 0 : _d.filter((test) => !test.success && !test.skipped).length) || 0,
+          skipped: ((_e = singleResult.results) == null ? void 0 : _e.filter((test) => test.skipped).length) || 0
         },
-        duration: results.duration || 0
+        duration: singleResult.duration || 0
       };
     }
   }
@@ -2414,19 +2415,19 @@ class TestRunner {
    * 清理资源
    */
   cleanup() {
-    const test = window.PlaywrightTest.test;
-    test._beforeAllHooks = [];
-    test._afterAllHooks = [];
-    test._beforeEachHooks = [];
-    test._afterEachHooks = [];
+    var _a;
+    const test = (_a = window.PlaywrightTest) == null ? void 0 : _a.test;
+    if (test) {
+      test._beforeAllHooks = [];
+      test._afterAllHooks = [];
+      test._beforeEachHooks = [];
+      test._afterEachHooks = [];
+    }
     this.logger.debug("测试运行器清理完成");
   }
 }
 if (typeof window !== "undefined") {
   window.PlaywrightTestRunner = TestRunner;
-}
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = TestRunner;
 }
 function ensureDependencies() {
   const dependencies = {
@@ -2435,9 +2436,9 @@ function ensureDependencies() {
     PlaywrightEventSimulator: EventSimulator,
     PlaywrightLocatorAdapter: LocatorAdapter,
     PlaywrightPageAdapter: PageAdapter,
-    PlaywrightExpectAdapter: ExpectAdapter$1,
+    PlaywrightExpectAdapter: ExpectAdapter,
     createExpect,
-    PlaywrightRuntime: PlaywrightRuntime$1,
+    PlaywrightRuntime,
     PlaywrightTestRunner: TestRunner
   };
   const missing = Object.entries(dependencies).filter(([name, component]) => !component).map(([name]) => name);
@@ -2445,7 +2446,8 @@ function ensureDependencies() {
     console.warn("缺少依赖:", missing);
   }
 }
-class PlaywrightExecutionEngine {
+const _PlaywrightExecutionEngine = class _PlaywrightExecutionEngine {
+  // TODO: Type this
   constructor(options = {}) {
     ensureDependencies();
     this.options = __spreadValues({
@@ -2453,7 +2455,7 @@ class PlaywrightExecutionEngine {
       timeout: 3e4
     }, options);
     this.logger = new Logger(this.options.logLevel);
-    this.runtime = new PlaywrightRuntime$1();
+    this.runtime = new PlaywrightRuntime();
     this.testRunner = new TestRunner(this.options);
     this.logger.info("Playwright 执行引擎初始化完成");
   }
@@ -2552,35 +2554,45 @@ class PlaywrightExecutionEngine {
     }
     return true;
   }
-}
-PlaywrightExecutionEngine.create = function(options) {
-  if (!PlaywrightExecutionEngine.checkCompatibility()) {
-    throw new Error("当前浏览器不支持 Playwright 执行引擎");
+  /**
+   * 静态工厂方法
+   */
+  static create(options) {
+    if (!_PlaywrightExecutionEngine.checkCompatibility()) {
+      throw new Error("当前浏览器不支持 Playwright 执行引擎");
+    }
+    return new _PlaywrightExecutionEngine(options);
   }
-  return new PlaywrightExecutionEngine(options);
+  /**
+   * 快捷执行方法
+   */
+  static run(_0) {
+    return __async(this, arguments, function* (script, options = {}) {
+      const engine = _PlaywrightExecutionEngine.create(options);
+      return yield engine.runScript(script);
+    });
+  }
+  /**
+   * 快捷加载方法
+   */
+  static load(_0) {
+    return __async(this, arguments, function* (scriptPath, options = {}) {
+      const engine = _PlaywrightExecutionEngine.create(options);
+      return yield engine.loadAndRun(scriptPath);
+    });
+  }
 };
-PlaywrightExecutionEngine.run = function(_0) {
-  return __async(this, arguments, function* (script, options = {}) {
-    const engine = PlaywrightExecutionEngine.create(options);
-    return yield engine.runScript(script);
-  });
-};
-PlaywrightExecutionEngine.load = function(_0) {
-  return __async(this, arguments, function* (scriptPath, options = {}) {
-    const engine = PlaywrightExecutionEngine.create(options);
-    return yield engine.loadAndRun(scriptPath);
-  });
-};
-PlaywrightExecutionEngine.Components = {
+_PlaywrightExecutionEngine.Components = {
   Logger,
   WaitManager,
   EventSimulator,
   PageAdapter,
   LocatorAdapter,
-  ExpectAdapter: ExpectAdapter$1,
-  Runtime: PlaywrightRuntime$1,
+  ExpectAdapter,
+  Runtime: PlaywrightRuntime,
   TestRunner
 };
+let PlaywrightExecutionEngine = _PlaywrightExecutionEngine;
 if (typeof window !== "undefined") {
   window.PlaywrightExecutionEngine = PlaywrightExecutionEngine;
   window.PWEngine = PlaywrightExecutionEngine;
@@ -2592,11 +2604,11 @@ if (typeof window !== "undefined") {
 }
 export {
   EventSimulator as PlaywrightEventSimulator,
-  ExpectAdapter$1 as PlaywrightExpectAdapter,
+  ExpectAdapter as PlaywrightExpectAdapter,
   LocatorAdapter as PlaywrightLocatorAdapter,
   Logger as PlaywrightLogger,
   PageAdapter as PlaywrightPageAdapter,
-  PlaywrightRuntime$1 as PlaywrightRuntime,
+  PlaywrightRuntime,
   TestRunner as PlaywrightTestRunner,
   WaitManager as PlaywrightWaitManager,
   createExpect,
